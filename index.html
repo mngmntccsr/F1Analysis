@@ -68,21 +68,28 @@ const fmt=t=>{if(t==null||isNaN(t))return'–';const m=Math.floor(t/60);return m
 const med=a=>{if(!a.length)return null;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2};
 const min=a=>a.length?Math.min(...a):null;
 const TYRE={SOFT:'#ff5d5d',MEDIUM:'#ffd84d',HARD:'#f2f2f2',INTERMEDIATE:'#4cd37b',WET:'#4aa3ff'};
-async function get(p){
+const REQ=[];
+async function get(p,keep){
   if(cache[p])return cache[p];
-  for(let i=0;i<6;i++){
-    await sleep(Math.max(0,380-(Date.now()-last)));last=Date.now();
+  try{const c=localStorage.getItem('f1:'+p);if(c)return cache[p]=JSON.parse(c)}catch(e){}
+  for(let i=0;i<8;i++){
+    const now=Date.now();while(REQ.length&&now-REQ[0]>60000)REQ.shift();
+    let w=Math.max(0,380-(now-last));if(REQ.length>=27)w=Math.max(w,60000-(now-REQ[0])+300);
+    if(w>2000)status('Limite richieste OpenF1 (30 al minuto): attendo '+Math.ceil(w/1000)+' s…');
+    await sleep(w);last=Date.now();REQ.push(last);
     let r;try{r=await fetch(API+p)}catch(e){await sleep(1500);continue}
-    if(r.ok){const j=await r.json();return cache[p]=Array.isArray(j)?j:[]}
+    if(r.ok){const j=await r.json(),a=Array.isArray(j)?j:[];cache[p]=a;
+      if(keep&&a.length){try{localStorage.setItem('f1:'+p,JSON.stringify(a))}catch(e){Object.keys(localStorage).filter(k=>k.startsWith('f1:')).forEach(k=>localStorage.removeItem(k))}}
+      return a}
     if(r.status==404)return cache[p]=[];
-    await sleep(1500*(i+1));
+    status('OpenF1 risponde '+r.status+', riprovo…');await sleep(r.status==429?20000:1500*(i+1));
   }
-  throw new Error('OpenF1 non risponde (limite richieste?). Riprova tra un minuto.');
+  throw new Error('OpenF1 non risponde. Riprova tra un minuto.');
 }
 async function loadSess(s){
   const k=s.session_key;if(DB[k])return DB[k];
   status('Scarico '+s.session_name+'…');
-  const drv=await get('drivers?session_key='+k),laps=await get('laps?session_key='+k),stints=await get('stints?session_key='+k);const rc=await get('race_control?session_key='+k);const del=new Set(rc.filter(m=>/DELETED/i.test(m.message||'')&&m.driver_number&&m.lap_number).map(m=>m.driver_number+'-'+m.lap_number));
+  const kp=new Date(s.date_end)<Date.now()-7200000;const drv=await get('drivers?session_key='+k,kp),laps=await get('laps?session_key='+k,kp),stints=await get('stints?session_key='+k,kp);const rc=await get('race_control?session_key='+k,kp);const del=new Set(rc.filter(m=>/DELETED/i.test(m.message||'')&&m.driver_number&&m.lap_number).map(m=>m.driver_number+'-'+m.lap_number));
   const D={},L={};drv.forEach(d=>D[d.driver_number]=d);
   laps.forEach(l=>{(L[l.driver_number]??=[]).push(l);if(!D[l.driver_number])D[l.driver_number]={driver_number:l.driver_number,name_acronym:'#'+l.driver_number,team_name:'',team_colour:'888888'}});
   Object.entries(L).forEach(([n,a])=>{a.sort((x,y)=>x.lap_number-y.lap_number);a.forEach(l=>{if(del.has(n+'-'+l.lap_number))l.bad='cancellato'});['duration_sector_1','duration_sector_2','duration_sector_3'].forEach(f=>{const m=med(a.filter(l=>l[f]&&!l.is_pit_out_lap&&!l.bad).map(l=>l[f]).sort((p,q)=>p-q).slice(0,5));if(m)a.forEach(l=>{if(l[f]&&l[f]<m*.97&&!l.bad)l.bad='settore anomalo'})})});
@@ -94,7 +101,7 @@ async function loadSess(s){
 }
 async function result(x){ // {numero:posizione}
   if(x.res)return x.res;const r={};
-  const sr=await get('session_result?session_key='+x.s.session_key);
+  const sr=await get('session_result?session_key='+x.s.session_key,new Date(x.s.date_end)<Date.now()-7200000);
   if(sr.length)sr.forEach(o=>{if(o.position)r[o.driver_number]=o.position;x.nl=Math.max(x.nl||0,o.number_of_laps||0)});
   else{const p=await get('position?session_key='+x.s.session_key),l={};p.forEach(o=>l[o.driver_number]=o);
     Object.values(l).sort((a,b)=>a.position-b.position).forEach(o=>r[o.driver_number]=o.position)}
@@ -114,7 +121,7 @@ async function init(){
   $('#nav').innerHTML=[['ris','Risultati'],['giri','Giri'],['gom','Gomme'],['tel','Telemetria'],['met','Meteo'],['prev','Previsioni']].map(([k,t],i)=>`<button data-t="${k}" class="${i?'':'on'}">${t}</button>`).join('');
   $('#t-ris').classList.add('on');
   $('#nav').onclick=e=>{const k=e.target.dataset.t;if(!k)return;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b==e.target));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id=='t-'+k))};
-  $('#wrow').innerHTML=Object.entries(W0).map(([k,v])=>`<label>${k}</label><input type="number" step="0.05" id="w-${k}" value="${v}">`).join('');
+  $('#wrow').innerHTML=Object.entries(W0).map(([k,v])=>`<label>${k}</label><input type="number" step="0.05" id="w-${k.replace(/ /g,'_')}" value="${v}">`).join('');
   $('#yr').onchange=loadYear;$('#gp').onchange=fillSS;$('#load').onclick=showSession;$('#gotel').onclick=showTele;$('#gopred').onclick=predict;$('#h1').onchange=$('#h2').onchange=h2h;$('#fuel').onchange=()=>X&&drawGom();
   loadYear();
 }
@@ -237,7 +244,7 @@ function spearman(a,b){const n=a.length;if(n<3)return null;const d=a.reduce((s,x
 async function predict(){
   try{const mk=$('#gp').value,now=new Date(),ss=SESS.filter(s=>s.meeting_key==mk&&new Date(s.date_end)<now);
   const E={};for(const s of ss)E[s.session_name]=await loadSess(s);
-  const W={};Object.keys(W0).forEach(k=>W[k]=+$('#w-'+k).value);const wid=+$('#wid').value/100;
+  const W={};Object.keys(W0).forEach(k=>W[k]=+$('#w-'+k.replace(/ /g,'_')).value);const wid=+$('#wid').value/100;
   const alias=E['Sprint Shootout']&&!E['Sprint Qualifying']?(E['Sprint Qualifying']=E['Sprint Shootout']):0;
   const drivers={};Object.values(E).forEach(x=>Object.keys(x.D).forEach(n=>drivers[n]??=x.D[n]));
   const nums=Object.keys(drivers);
@@ -281,7 +288,7 @@ async function predict(){
    tbl(R,[dr,o=>`<td class="n">${o.grid}</td>`,o=>`<td class="n ${o.est?'':'rd'}">${o.est?'+'+(o.pace*100).toFixed(2)+'%':'stima'}</td>`,o=>`<td class="n">${(st[o.n].w/N*100).toFixed(0)}%</td>`,o=>`<td class="n">${(st[o.n].p/N*100).toFixed(0)}%</td>`,o=>`<td class="n">${(st[o.n].t10/N*100).toFixed(0)}%</td>`,o=>`<td class="n">${(st[o.n].s/N).toFixed(1)}</td>`,o=>`<td class="n">${rr?(rr[o.n]||'DNF'):'–'}</td>`],
    ['Prev','Pilota','Team','Griglia','Passo gara','Vittoria','Podio','Top 10','Pos. media','Reale']);
   $('#pred-out').innerHTML=html;window.SIMD=SIM;window.DRV=drivers;window.QR=Q;window.RR=R;window.REAL={q:rq,r:rr};fillH2H(Q.map(o=>o.n));status('Previsioni pronte.')}
-  catch(e){status(e.message);console.error(e)}
+  catch(e){status('Errore previsioni: '+e.message);console.error(e)}
 }
 function fillH2H(order){const o=order.map(n=>`<option value="${n}">${DRV[n].name_acronym} – ${DRV[n].team_name}</option>`).join('');$('#h1').innerHTML=o;$('#h2').innerHTML=o;$('#h2').selectedIndex=1;$('#h2h').style.display='block';h2h()}
 function h2h(){

@@ -33,6 +33,7 @@ td.n{font-size:13px}.pu{color:var(--pu);font-weight:500}.gr{color:var(--gr)}.rd{
 .row label{color:var(--mut);font-size:12px}.row input[type=number]{width:70px}
 .st{display:flex;height:22px;gap:2px;min-width:300px}.st div{font-size:10px;text-align:center;line-height:22px;color:#111;border-radius:3px;overflow:hidden}
 .note{color:var(--mut);font-size:12px;margin:6px 0}.err{color:var(--rd)}
+#tb-cmp td,#tb-cmp th{text-align:right}#tb-cmp td:first-child,#tb-cmp th:first-child{text-align:left}
 </style></head><body>
 <header><h1>F1 Lab</h1>
 <select id="yr" aria-label="Anno"></select><select id="gp" aria-label="Gran Premio"></select><select id="ss" aria-label="Sessione"></select>
@@ -42,7 +43,7 @@ td.n{font-size:13px}.pu{color:var(--pu);font-weight:500}.gr{color:var(--gr)}.rd{
 <section class="tab" id="t-ris"><div class="box"><table id="tb-ris"></table></div><p class="note">Viola = migliore assoluto della sessione. Giro ideale = somma dei tre migliori settori. Velocità di punta dai rilevamenti OpenF1. Esclusi = giri cancellati dai commissari o con un settore anomalo (sospetto taglio), non usati per miglior giro e giro ideale.</p></section>
 <section class="tab" id="t-giri"><div class="chips" id="chips"></div>
 <div class="row"><label><input type="checkbox" id="clean" checked> Nascondi giri lenti (&gt;115% del migliore del pilota)</label></div>
-<div class="box"><div class="cv" style="height:420px"><canvas id="c-giri"></canvas></div></div></section>
+<div class="box"><div class="cv" style="height:420px"><canvas id="c-giri"></canvas></div></div><div class="box n" id="lapinfo" style="font-size:13px">Clicca un giro di un pilota: tempo, mescola ed età gomma. Colore del punto = mescola (rosso soft, giallo medium, bianco hard), contorno = team.</div></section>
 <section class="tab" id="t-gom"><div class="box"><table id="tb-str"></table></div><div class="row"><label>Correzione carburante s/giro</label><input id="fuel" type="number" value="0.03" step="0.01"></div><div class="box"><table id="tb-gom"></table></div><p class="note">Passo = mediana dei giri puliti (esclusi uscita/rientro box, giri cancellati e anomali). Degrado = pendenza robusta (Theil-Sen) + correzione carburante, calcolato da 5 giri puliti in su. Verde sotto 0.03 s/giro, rosso sopra 0.10. Viola = miglior passo su quella mescola.</p></section>
 <section class="tab" id="t-tel"><div class="row"><label>Piloti</label><select id="d1"></select><select id="d2"></select><select id="d3"></select>
 <label>Giro</label><input id="lp" type="number" min="1" placeholder="migliore"><button class="go" id="gotel">Mostra telemetria</button></div>
@@ -50,11 +51,12 @@ td.n{font-size:13px}.pu{color:var(--pu);font-weight:500}.gr{color:var(--gr)}.rd{
 <div class="box"><div class="cv" style="height:220px"><canvas id="c-thr"></canvas></div></div><div class="box"><div class="cv" style="height:220px"><canvas id="c-brk"></canvas></div></div>
 <div class="box"><div class="cv" style="height:220px"><canvas id="c-gear"></canvas></div></div>
 <p class="note">Il delta è confrontato con il primo pilota; le distanze sono ricavate integrando la velocità, quindi approssimate.</p></section>
+<section class="tab" id="t-conf"><div class="row"><label>Piloti</label><select id="cA"></select><select id="cB"></select><select id="cC"></select><button class="go" id="gocmp">Confronta weekend</button></div><div class="box"><table id="tb-cmp"></table></div><div class="box"><div class="cv" style="height:380px"><canvas id="c-cmp"></canvas></div></div><p class="note">Confronto su tutte le sessioni concluse del weekend caricato. Viola = migliore tra i piloti scelti; le colonne Δ sono il distacco dal primo pilota. Passo e degrado sono calcolati sugli stint puliti (almeno 5 giri), mescola per mescola.</p></section>
 <section class="tab" id="t-met"><div class="box"><div class="cv"><canvas id="c-met"></canvas></div></div></section>
 <section class="tab" id="t-prev">
 <div class="box"><b>Pesi sessioni</b> <span class="note">(si rinormalizzano su quelle disponibili)</span>
 <div class="row" id="wrow"></div>
-<div class="row"><label>Giro ideale nel mix %</label><input id="wid" type="number" value="40" min="0" max="100">
+<div class="row"><label>Sessioni usate</label><select id="cut"><option value="sel">precedenti a quella selezionata in alto</option><option value="all">tutte quelle concluse</option></select><label>Giro ideale nel mix %</label><input id="wid" type="number" value="40" min="0" max="100">
 <label>Giri gara</label><input id="laps" type="number" value="55"><label>s per posizione in griglia</label><input id="gw" type="number" value="1.5" step="0.1">
 <label>Incertezza gara (s)</label><input id="sd" type="number" value="9"><label>Rischio ritiro %</label><input id="dnf" type="number" value="6">
 <label>Incertezza quali %</label><input id="sdq" type="number" value="0.25" step="0.05"><button class="go" id="gopred">Calcola previsioni del weekend</button></div></div>
@@ -118,11 +120,11 @@ const baseOpt=(yt,xt)=>({animation:false,responsive:true,maintainAspectRatio:fal
 async function init(){
   const ys=[];for(let y=new Date().getFullYear();y>=2023;y--)ys.push(y);
   $('#yr').innerHTML=ys.map(y=>`<option>${y}</option>`).join('');
-  $('#nav').innerHTML=[['ris','Risultati'],['giri','Giri'],['gom','Gomme'],['tel','Telemetria'],['met','Meteo'],['prev','Previsioni']].map(([k,t],i)=>`<button data-t="${k}" class="${i?'':'on'}">${t}</button>`).join('');
+  $('#nav').innerHTML=[['ris','Risultati'],['giri','Giri'],['gom','Gomme'],['tel','Telemetria'],['conf','Confronto'],['met','Meteo'],['prev','Previsioni']].map(([k,t],i)=>`<button data-t="${k}" class="${i?'':'on'}">${t}</button>`).join('');
   $('#t-ris').classList.add('on');
   $('#nav').onclick=e=>{const k=e.target.dataset.t;if(!k)return;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b==e.target));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id=='t-'+k))};
   $('#wrow').innerHTML=Object.entries(W0).map(([k,v])=>`<label>${k}</label><input type="number" step="0.05" id="w-${k.replace(/ /g,'_')}" value="${v}">`).join('');
-  $('#yr').onchange=loadYear;$('#gp').onchange=fillSS;$('#load').onclick=showSession;$('#gotel').onclick=showTele;$('#gopred').onclick=predict;$('#h1').onchange=$('#h2').onchange=h2h;$('#fuel').onchange=()=>X&&drawGom();
+  $('#yr').onchange=loadYear;$('#gp').onchange=fillSS;$('#load').onclick=showSession;$('#gotel').onclick=showTele;$('#gopred').onclick=predict;$('#h1').onchange=$('#h2').onchange=h2h;$('#gocmp').onclick=compare;$('#fuel').onchange=()=>X&&drawGom();
   loadYear();
 }
 const W0={'Practice 1':.15,'Practice 2':.25,'Practice 3':.45,'Sprint Qualifying':.35,'Sprint':.2};
@@ -141,7 +143,7 @@ async function showSession(){
   act.clear();nums.forEach(n=>act.add(n));
   const ps=n=>`<option value="${n}">${nm(X,n)}</option>`;
   $('#d1').innerHTML=nums.map(ps).join('');$('#d2').innerHTML='<option value="">–</option>'+nums.map(ps).join('');$('#d3').innerHTML='<option value="">–</option>'+nums.map(ps).join('');
-  $('#d2').selectedIndex=2;
+  $('#d2').selectedIndex=2;['cA','cB','cC'].forEach((id,i)=>$('#'+id).innerHTML=(i==2?'<option value="">–</option>':'')+nums.map(ps).join(''));$('#cB').selectedIndex=1;
   drawRis();drawChips();drawGiri();drawGom();status(`${s.session_name}: ${nums.length} piloti. Scarico meteo…`);drawMet().then(()=>status('Fatto.'))}
   catch(e){status(e.message)}
 }
@@ -156,11 +158,15 @@ function drawChips(){
   $('#chips').onclick=e=>{const n=e.target.dataset.n;if(!n)return;if(n=='all')X.order.forEach(x=>act.add(x));else if(n=='none')act.clear();else act.has(n)?act.delete(n):act.add(n);drawChips();drawGiri()}
 }
 $('#clean').onchange=()=>X&&drawGiri();
+function tyreAt(x,n,lap){const s=x.stints.find(s=>s.driver_number==n&&lap>=s.lap_start&&lap<=s.lap_end);return s?{c:s.compound||'?',age:(s.tyre_age_at_start||0)+lap-s.lap_start+1,used:(s.tyre_age_at_start||0)>0,st:s.stint_number}:null}
+function lapDesc(x,n,l){const t=tyreAt(x,n,l.lap_number);return `${dot(x,n)}${nm(x,n)} · giro ${l.lap_number} · <b>${fmt(l.lap_duration)}</b> · ${t?`${t.c} ${t.used?'usata':'nuova'}, ${t.age} giri di vita (stint ${t.st})`:'gomma n.d.'} · S1 ${fmt(l.duration_sector_1)} · S2 ${fmt(l.duration_sector_2)} · S3 ${fmt(l.duration_sector_3)}${l.is_pit_out_lap?' · uscita dai box':''}${l.bad?' · <span class="rd">escluso: '+l.bad+'</span>':''}`}
 function drawGiri(){
-  const ds=X.order.filter(n=>act.has(n)).map(n=>{const best=X[n]?.best;
-    return{label:nm(X,n),borderColor:col(X,n),backgroundColor:col(X,n),borderWidth:1.5,pointRadius:2,
-    data:(X.L[n]||[]).filter(l=>l.lap_duration&&!l.bad&&(!$('#clean').checked||l.lap_duration<best*1.15)).map(l=>({x:l.lap_number,y:l.lap_duration}))}});
-  const o=baseOpt('secondi','giro');o.plugins.tooltip={callbacks:{label:c=>`${c.dataset.label} giro ${c.raw.x}: ${fmt(c.raw.y)}`}};
+  const ds=X.order.filter(n=>act.has(n)).map(n=>{const best=X[n]?.best,p=(X.L[n]||[]).filter(l=>l.lap_duration&&!l.bad&&(!$('#clean').checked||l.lap_duration<best*1.15));
+    return{label:nm(X,n),dn:n,laps:p,borderColor:col(X,n),borderWidth:1.5,pointRadius:3.5,pointHitRadius:8,pointBorderWidth:1.5,pointBorderColor:col(X,n),
+    pointBackgroundColor:p.map(l=>TYRE[tyreAt(X,n,l.lap_number)?.c]||'#777'),data:p.map(l=>({x:l.lap_number,y:l.lap_duration}))}});
+  const o=baseOpt('secondi','giro');o.interaction={mode:'nearest',intersect:true};
+  o.plugins.tooltip={callbacks:{label:c=>{const l=c.dataset.laps[c.dataIndex],t=tyreAt(X,c.dataset.dn,l.lap_number);return [`${c.dataset.label} giro ${l.lap_number}: ${fmt(l.lap_duration)}`,t?`${t.c} · ${t.age} giri di vita`:'']}}};
+  o.onClick=(e,els,ch)=>{if(!els.length)return;const d=ch.data.datasets[els[0].datasetIndex];$('#lapinfo').innerHTML=lapDesc(X,d.dn,d.laps[els[0].index])};
   mkChart('c-giri',{type:'line',data:{datasets:ds},options:o});
 }
 function theil(v){const q=[];for(let i=0;i<v.length;i++)for(let j=i+1;j<v.length;j++)if(v[j].lap_number!=v[i].lap_number)q.push((v[j].lap_duration-v[i].lap_duration)/(v[j].lap_number-v[i].lap_number));return med(q)}
@@ -208,6 +214,45 @@ async function showTele(){
   mkChart('c-dlt',{type:'line',data:{datasets:dl},options:baseOpt('s (positivo = più lento)','metri')});setupMap(T);status('Fatto.')}
   catch(e){status(e.message)}
 }
+/* ---------- cursore rosso, curve ---------- */
+let CUR=null;const TELC=['c-spd','c-dlt','c-thr','c-brk','c-gear'],CC={};
+Chart.register({id:'cur',afterDatasetsDraw(ch){if(CUR==null||!TELC.includes(ch.canvas.id))return;const x=ch.scales.x.getPixelForValue(CUR),a=ch.chartArea;if(x<a.left||x>a.right)return;const g=ch.ctx;g.save();g.strokeStyle='#ff3b3b';g.lineWidth=2;g.beginPath();g.moveTo(x,a.top);g.lineTo(x,a.bottom);g.stroke();g.restore()}});
+async function loadCorners(){const s=X.s,k=s.circuit_key+'-'+s.year;if(k in CC)return;CC[k]=null;
+  try{const j=await(await fetch(`https://api.multiviewer.app/api/v1/circuits/${s.circuit_key}/${s.year}`)).json();CC[k]=(j.corners||[]).map(c=>({n:c.number,x:c.trackPosition.x,y:c.trackPosition.y}))}catch(e){}}
+function detect(loc){
+  loc=loc.filter((p,i)=>!i||Math.hypot(p.x-loc[i-1].x,p.y-loc[i-1].y)>.5);const h=[];for(let i=1;i<loc.length;i++)h.push(Math.atan2(loc[i].y-loc[i-1].y,loc[i].x-loc[i-1].x));
+  const out=[];let run=null;const close=()=>{if(run&&Math.abs(run.tot)>.5)out.push({x:loc[run.pk].x,y:loc[run.pk].y});run=null};
+  h.forEach((a,i)=>{if(!i)return;let d=a-h[i-1];while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;
+    if(Math.abs(d)<.02){if(run&&++run.gap>1)close();return}
+    if(run&&Math.sign(d)!=Math.sign(run.tot))close();
+    if(!run)run={tot:0,pk:i,mx:0,gap:0};run.gap=0;run.tot+=d;if(Math.abs(d)>run.mx){run.mx=Math.abs(d);run.pk=i}});
+  close();return out.map((c,i)=>({n:i+1,...c}))}
+function cornersFor(loc){
+  const off=CC[X.s.circuit_key+'-'+X.s.year],xs=loc.map(p=>p.x),ys=loc.map(p=>p.y),sp=Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys));
+  if(off?.length&&off.filter(c=>Math.min(...loc.map(p=>Math.hypot(p.x-c.x,p.y-c.y)))<sp*.06).length>=off.length*.8)return{list:off,src:'ufficiali'};
+  return{list:detect(loc),src:'stimate dal tracciato'}}
+/* ---------- confronto piloti ---------- */
+const CP=['#5ad1e6','#ffb454','#c58cff'];
+async function compare(){
+  try{if(!X)return status('Prima carica una sessione.');
+  const ns=['cA','cB','cC'].map(i=>$('#'+i).value).filter(Boolean);if(new Set(ns).size<2)return status('Scegli almeno 2 piloti diversi.');
+  const ss=SESS.filter(s=>s.meeting_key==X.s.meeting_key&&new Date(s.date_end)<new Date()),fuel=+$('#fuel').value||0,I=v=>v,I2=v=>(v>0?'+':'')+v.toFixed(3);let h='';
+  const row=(lab,v,f=fmt,hi=false,dp=3)=>{const ok=v.filter(a=>a!=null);if(!ok.length)return'';const b=hi?Math.max(...ok):Math.min(...ok);
+    return `<tr><td>${lab}</td>${v.map(a=>`<td class="n ${a!=null&&a==b?'pu':''}">${a!=null?f(a):'–'}</td>`).join('')}${v.slice(1).map(a=>`<td class="n">${a!=null&&v[0]!=null?(a>=v[0]?'+':'')+(a-v[0]).toFixed(dp):'–'}</td>`).join('')}</tr>`};
+  for(const s of ss){const x=await loadSess(s);await result(x);status('Confronto '+s.session_name+'…');
+    const g=k=>ns.map(n=>x[n]?.[k]||null),st=ns.map(n=>stintInfo(x,n).filter(q=>q.clean>=5&&q.pace));
+    let r=row('Posizione',ns.map(n=>x.res[n]||null),I,false,0)+row('Miglior giro',g('best'))+row('Giro ideale',g('ideal'))+row('Settore 1',g('s1'))+row('Settore 2',g('s2'))+row('Settore 3',g('s3'))+row('Punta km/h',g('top'),I,true,0)+row('Trap I1 km/h',g('i1'),I,true,0)+row('Trap I2 km/h',g('i2'),I,true,0)+row('Giri validi',g('n'),I,true,0)+row('Giri esclusi',g('bad'),I,false,0);
+    [...new Set(st.flat().map(q=>q.compound))].forEach(c=>{
+      const pc=ns.map((n,i)=>{const q=st[i].filter(z=>z.compound==c);if(!q.length)return null;return q.reduce((u,z)=>u+z.pace*z.clean,0)/q.reduce((u,z)=>u+z.clean,0)});
+      const dg=ns.map((n,i)=>{const q=st[i].filter(z=>z.compound==c&&z.slope!=null);return q.length?q.reduce((u,z)=>u+z.slope,0)/q.length+fuel:null});
+      r+=row('Passo '+c,pc)+row('Degrado '+c+' s/giro',dg,I2)});
+    if(r)h+=`<tr><td colspan="${ns.length*2}" style="color:var(--ac);font:700 19px 'Barlow Condensed',sans-serif;padding-top:16px">${s.session_name}</td></tr>`+r}
+  $('#tb-cmp').innerHTML=`<tr><th>Metrica</th>${ns.map((n,i)=>`<th><span class="dot" style="background:${CP[i]}"></span>${nm(X,n)}</th>`).join('')}${ns.slice(1).map(n=>`<th>Δ ${nm(X,n)}</th>`).join('')}</tr>`+h;
+  const o=baseOpt('secondi','giro');o.plugins.title={display:true,text:'Giri – '+X.s.session_name+' (colore punto = mescola)',color:'#8b95a8'};
+  o.plugins.tooltip={callbacks:{label:c=>`${c.dataset.label} giro ${c.raw.x}: ${fmt(c.raw.y)}`}};
+  mkChart('c-cmp',{type:'line',data:{datasets:ns.map((n,i)=>{const b=X[n]?.best,p=(X.L[n]||[]).filter(l=>l.lap_duration&&!l.bad&&l.lap_duration<b*1.15);
+    return{label:nm(X,n),borderColor:CP[i],borderWidth:1.8,pointRadius:3.5,pointBorderWidth:1.5,pointBorderColor:CP[i],pointBackgroundColor:p.map(l=>TYRE[tyreAt(X,n,l.lap_number)?.c]||'#777'),data:p.map(l=>({x:l.lap_number,y:l.lap_duration}))}})},options:o});
+  status('Confronto pronto.')}catch(e){status(e.message)}}
 /* ---------- replay sul tracciato ---------- */
 let M=null;
 const idx=(a,t)=>{let lo=0,hi=a.length-1;while(lo<hi){const m=(lo+hi+1)>>1;a[m].t<=t?lo=m:hi=m-1}return lo};
@@ -216,7 +261,7 @@ function setupMap(T){
   const c=$('#map');c.width=c.clientWidth||900;c.height=520;
   const p=D.flatMap(t=>t.loc),xs=p.map(q=>q.x),ys=p.map(q=>q.y),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),pad=30,
   sc=Math.min((c.width-2*pad)/(x1-x0||1),(c.height-2*pad)/(y1-y0||1)),ox=(c.width-(x1-x0)*sc)/2,oy=(c.height-(y1-y0)*sc)/2;
-  M={T:D,P:q=>[ox+(q.x-x0)*sc,c.height-oy-(q.y-y0)*sc],dur:Math.max(...D.map(t=>t.dur)),t:0,playing:false};$('#sl').value=0;$('#play').textContent='▶ Avvia replay';drawMap();
+  M={T:D,P:q=>[ox+(q.x-x0)*sc,c.height-oy-(q.y-y0)*sc],dur:Math.max(...D.map(t=>t.dur)),t:0,playing:false};M.cen=D[0].loc.reduce((a,q)=>{const[x,y]=M.P(q);return[a[0]+x/D[0].loc.length,a[1]+y/D[0].loc.length]},[0,0]);const mm=M,l0=D[0].loc;M.corners=cornersFor(l0);loadCorners().then(()=>{if(M===mm){mm.corners=cornersFor(l0);drawMap()}});$('#sl').value=0;$('#play').textContent='▶ Avvia replay';drawMap();
 }
 function ramp(v){return `hsl(${240-240*Math.min(1,Math.max(0,v))},90%,55%)`}
 function drawMap(){
@@ -229,7 +274,9 @@ function drawMap(){
     const a=d.loc[e],b=d.loc[Math.min(e+1,d.loc.length-1)],f=b.t>a.t?Math.min(1,(t-a.t)/(b.t-a.t)):0,[px,py]=P({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f});
     g.fillStyle=col(X,d.n);g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(px,py,8,0,7);g.fill();g.stroke();g.fillStyle='#fff';g.font='12px IBM Plex Mono,monospace';g.fillText(nm(X,d.n),px+11,py-9);
     const q=d.P[idx(d.P,t)];rd.push(`${dot(X,d.n)}${nm(X,d.n)}: ${q.speed} km/h · marcia ${q.n_gear} · acc. ${q.throttle}% · ${q.brake?'<span class="rd">FRENO</span>':'—'}`)});
-  $('#rd').innerHTML=`t = ${t.toFixed(1)} s<br>`+rd.join('<br>');
+  const cs=M.corners;if(cs){g.font='11px IBM Plex Mono,monospace';g.textAlign='center';g.textBaseline='middle';cs.list.forEach(k=>{const[px,py]=P(k),dx=px-M.cen[0],dy=py-M.cen[1],L=Math.hypot(dx,dy)||1,lx=px+dx/L*24,ly=py+dy/L*24;g.strokeStyle='#8b95a8';g.lineWidth=1;g.beginPath();g.moveTo(px,py);g.lineTo(lx,ly);g.stroke();g.fillStyle='#10141c';g.beginPath();g.arc(lx,ly,10,0,7);g.fill();g.stroke();g.fillStyle='#e7eaf0';g.fillText(k.n,lx,ly+1)});g.textAlign='start';g.textBaseline='alphabetic'}
+  CUR=T[0].P[idx(T[0].P,t)].d;TELC.forEach(i=>CH[i]?.draw());
+  $('#rd').innerHTML=`t = ${t.toFixed(1)} s<br>`+rd.join('<br>')+(cs?`<br><span class="note">Curve ${cs.src}</span>`:'');
 }
 function tick(ts){if(!M||!M.playing)return;M.t+=(ts-M.last)/1000*$('#rs').value;M.last=ts;
   if(M.t>=M.dur){M.t=M.dur;M.playing=false;$('#play').textContent='▶ Avvia replay'}
@@ -242,8 +289,9 @@ $('#sl').oninput=()=>{if(M){M.t=$('#sl').value/1000*M.dur;drawMap()}};$('#cm').o
 const rank=(arr,key)=>[...arr].sort((a,b)=>a[key]-b[key]).forEach((o,i)=>o[key+'R']=i+1);
 function spearman(a,b){const n=a.length;if(n<3)return null;const d=a.reduce((s,x,i)=>s+(x-b[i])**2,0);return 1-6*d/(n*(n*n-1))}
 async function predict(){
-  try{const mk=$('#gp').value,now=new Date(),ss=SESS.filter(s=>s.meeting_key==mk&&new Date(s.date_end)<now);
-  const E={};for(const s of ss)E[s.session_name]=await loadSess(s);
+  try{const mk=$('#gp').value,now=new Date(),sel=SESS.find(s=>s.session_key==$('#ss').value),ss=SESS.filter(s=>s.meeting_key==mk&&new Date(s.date_end)<now),ev=$('#cut').value=='all'?ss:ss.filter(s=>new Date(s.date_start)<new Date(sel.date_start));
+  if(!ev.length){status('Nessuna sessione precedente a '+sel.session_name+': scegli una sessione successiva (es. Qualifying) oppure "tutte quelle concluse".');return}
+  const E={};for(const s of ev)E[s.session_name]=await loadSess(s);
   const W={};Object.keys(W0).forEach(k=>W[k]=+$('#w-'+k.replace(/ /g,'_')).value);const wid=+$('#wid').value/100;
   const alias=E['Sprint Shootout']&&!E['Sprint Qualifying']?(E['Sprint Qualifying']=E['Sprint Shootout']):0;
   const drivers={};Object.values(E).forEach(x=>Object.keys(x.D).forEach(n=>drivers[n]??=x.D[n]));
@@ -256,8 +304,8 @@ async function predict(){
     Q.forEach(o=>{if(perf[o.n]){const g=perf[o.n]/b-1;o.per[k]=g;o.g+=g*W[k];o.w+=W[k]}})}
   Q.forEach(o=>o.score=o.w?o.g/o.w:1);rank(Q,'score');
   const sh=k=>k.replace('Practice ','FP').replace('Sprint Qualifying','SQ');
-  const real=async name=>{const x=E[name];if(!x)return null;return await result(x)};
-  const rq=await real('Qualifying');
+  const RX={},real=async name=>{const s=ss.find(s=>s.session_name==name);if(!s)return null;return await result(RX[name]??=(DB[s.session_key]||{s,res:null}))};
+  const rq=await real('Qualifying'),rqG=E['Qualifying']?rq:null;
   const tbl=(rows,cols,head)=>`<div class="box"><table><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr>${rows.map(r=>'<tr>'+cols.map(c=>c(r)).join('')+'</tr>').join('')}</table></div>`;
   const dr=o=>`<td class="n">${o.pos}</td><td>${dot({D:drivers},o.n)}${drivers[o.n].name_acronym}</td><td>${drivers[o.n].team_name}</td>`;
   const summ=(rows,rr)=>{if(!rr)return '<p class="note">Risultato reale non ancora disponibile (backtest non possibile).</p>';
@@ -275,8 +323,8 @@ async function predict(){
   for(const c in pool){const m={};for(const n in pool[c])m[n]=pool[c][n].reduce((a,o)=>a+o.p*o.w,0)/pool[c][n].reduce((a,o)=>a+o.w,0);
     const b=min(Object.values(m));R.forEach(o=>{if(m[o.n]){const w=pool[c][o.n].reduce((a,x)=>a+x.w,0);o.sum+=(m[o.n]/b-1)*w;o.w+=w}})}
   const qs={};Q.forEach(o=>qs[o.n]=o.score);
-  const grid=rq&&Object.keys(rq).length?rq:Object.fromEntries(Q.map(o=>[o.n,o.pos]));
-  const rr=await real('Race');if(rr&&E['Race'].nl)$('#laps').value=E['Race'].nl;
+  const grid=rqG&&Object.keys(rqG).length?rqG:Object.fromEntries(Q.map(o=>[o.n,o.pos]));
+  const rr=await real('Race');if(rr&&RX['Race']?.nl)$('#laps').value=RX['Race'].nl;
   const laps=+$('#laps').value,gw=+$('#gw').value,sd=+$('#sd').value,dnf=+$('#dnf').value/100;
   const lapRef=ref?ref*1.03:95,RT=lapRef*laps;
   R.forEach(o=>{o.est=o.w>=8;o.pace=o.est?o.sum/o.w:qs[o.n]+0.004;o.grid=grid[o.n]||22;o.t=o.pace*RT+(o.grid-1)*gw});
@@ -284,7 +332,7 @@ async function predict(){
   const N=3000,st={},sdq=+$('#sdq').value/100,SIM={q:{},r:{}};R.forEach(o=>st[o.n]={w:0,p:0,t10:0,s:0});nums.forEach(n=>{SIM.q[n]=new Uint8Array(N);SIM.r[n]=new Uint8Array(N)});for(let i=0;i<N;i++)Q.map(o=>({n:o.n,t:o.score+gauss()*sdq*(o.w?1:3)})).sort((a,b)=>a.t-b.t).forEach((o,j)=>SIM.q[o.n][i]=j+1);
   for(let i=0;i<N;i++){const r=R.map(o=>({n:o.n,t:o.t+gauss()*sd*(o.est?1:1.6)+(Math.random()<dnf?1e6:0)})).sort((a,b)=>a.t-b.t);
     r.forEach((o,j)=>{const s=st[o.n];SIM.r[o.n][i]=j+1;s.s+=j+1;if(j==0)s.w++;if(j<3)s.p++;if(j<10)s.t10++})}
-  html+=`<h2 style="margin-top:20px">Gara prevista</h2><p class="note">Passo da long run (gomma per gomma, giri puliti) di ${['Practice 1','Practice 2','Practice 3','Sprint'].filter(k=>E[k]).map(sh).join(', ')||'–'} + griglia ${rq?'reale':'prevista'}. “Stima” = pochi giri di long run, ripiego sulla qualifica.</p>`+summ(R,rr)+
+  html+=`<h2 style="margin-top:20px">Gara prevista</h2><p class="note">Passo da long run (gomma per gomma, giri puliti) di ${['Practice 1','Practice 2','Practice 3','Sprint'].filter(k=>E[k]).map(sh).join(', ')||'–'} + griglia ${rqG?'reale':'prevista'}. “Stima” = pochi giri di long run, ripiego sulla qualifica.</p>`+summ(R,rr)+
    tbl(R,[dr,o=>`<td class="n">${o.grid}</td>`,o=>`<td class="n ${o.est?'':'rd'}">${o.est?'+'+(o.pace*100).toFixed(2)+'%':'stima'}</td>`,o=>`<td class="n">${(st[o.n].w/N*100).toFixed(0)}%</td>`,o=>`<td class="n">${(st[o.n].p/N*100).toFixed(0)}%</td>`,o=>`<td class="n">${(st[o.n].t10/N*100).toFixed(0)}%</td>`,o=>`<td class="n">${(st[o.n].s/N).toFixed(1)}</td>`,o=>`<td class="n">${rr?(rr[o.n]||'DNF'):'–'}</td>`],
    ['Prev','Pilota','Team','Griglia','Passo gara','Vittoria','Podio','Top 10','Pos. media','Reale']);
   $('#pred-out').innerHTML=html;window.SIMD=SIM;window.DRV=drivers;window.QR=Q;window.RR=R;window.REAL={q:rq,r:rr};fillH2H(Q.map(o=>o.n));status('Previsioni pronte.')}
